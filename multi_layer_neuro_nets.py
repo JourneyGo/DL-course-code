@@ -73,10 +73,9 @@ class NeuroNet:
             last_layer_units = layer.num_units
         
     def forward(self,input_x):
-        #print "forward"
         feed_data = input_x
         for layer in self.layers:
-            #add bias
+            #add bias through augmentation of the Weight-matrix
             new_row = np.ones((1,feed_data.shape[1]))
             feed_data = np.row_stack((feed_data,new_row))
             layer.computeA(feed_data)
@@ -99,20 +98,22 @@ class NeuroNet:
         for i in xrange(epoch_limits):
             self.forward(self.train_set)
             self.backwark(self.train_label)
-            print("training %05d epoch: precision %02.02f"%(i+1,self.stats()))
-            if self.stats()>0.96:
-                break
+            print("training %05d epoch: \n\tprecision on train %02.02f \n\tprecision on test  %02.02f"%(i+1,self.stats("train"),self.stats("test")))
+
             
-    def stats(self):
-        self.forward(self.test_set)
+    def stats(self,type_of_dataset):
+        if type_of_dataset == "train":
+            data = self.train_set
+            label = self.train_label
+        else:
+            data = self.test_set
+            label = self.test_label
+        self.forward(data)
         layer = self.layers[-1]
-        #print layer.name
         y = layer.act
-        #print y.shape
-        #print self.test_label.shape[1]
         y[y >  0.5] = 1
         y[y <= 0.5] = 0
-        return sum(y.T==self.test_label)*1.0/self.test_label.shape[0]
+        return sum(y.T==label)*1.0/label.shape[0]
         
     def predict(self):
         self.forward(self.test_set)
@@ -123,6 +124,12 @@ class NeuroNet:
         return sum(y.T==self.test_label)*1.0/self.test_label.shape[0],y            
 
 def loadData():
+    '''
+    读取数据
+    -- X为训练集，组织形式：每行一个样本，列个数即特征维度
+    -- y为训练集标签，与训练集逐行对应
+    -- Tx,Ty为测试集，同理
+    '''
     train_set = pd.read_csv("X.csv",header=None)
     train_label = pd.read_csv("y.csv",header=None)
     test_set = pd.read_csv("Tx.csv",header=None)
@@ -131,22 +138,23 @@ def loadData():
         
 def buildNet():
     Train,Ty,test,ty = loadData()
+    #根据课程内容，将数据集转置，调整成每列一个样本
+    #标签集保持列向量形式
     net = NeuroNet(Train.values.T,Ty.values,test.values.T,ty.values)
+    #层参数：名称，单元个数，学习率
     net.addLayer("first",20,0.01)
     net.addLayer("second",10,0.01)
+    #最后一层请务必叫“output”
     net.addLayer("output",1,0.01)
     net.initLayers()
     return net
     
 def dothework():
+    #创建神经网络
     net = buildNet()
     print("build success,net have %d layers"%len(net.layers))
-    net.train(50000)
-    precision,y = net.predict()
-    print "result %.02f"%precision
-    if (precision>=0.95):
-        result = pd.DataFrame(y.T)
-        result.to_csv("myresult.csv")
+    #迭代训练 5000次
+    net.train(5000)
 
 if __name__ == "__main__":
     dothework()
