@@ -66,7 +66,7 @@ class DataSet:
             self.test['label'] = self.test_label
             
 class NeuroLayer:
-    def __init__(self,name,num_units,alpha):
+    def __init__(self,name,num_units,alpha,**Dropout):
         self.name = name
         self.num_units = num_units
         self.alpha = alpha
@@ -75,6 +75,15 @@ class NeuroLayer:
         self.act = "nan"
         self.derivative_Z = "nan"
         self.delta = "nan"
+        #For L2 regularition
+        self.lmbda = 0.0
+        #For Dropout regularition
+        self.keep_ratio = 1.0
+        #单层dropout入口
+        if Dropout.get('Dropout') != None:
+            self.regularizationDropout(Dropout['Dropout'])
+        else:
+            self.keep_ratio = 1.0
         
     def activate(self,Z):
         A = 1.0/(1+np.exp(-Z))
@@ -85,6 +94,9 @@ class NeuroLayer:
         self.inputs = input_x
         z=np.dot(self.weights,input_x)
         self.act = self.activate(z)
+        #for drop out
+        dropVec = np.random.rand(self.act.shape[0],self.act.shape[1]) <= self.keep_ratio
+        self.act = np.multiply(self.act,dropVec)*1.0/self.keep_ratio
         
     def computeDZ(self,input_delta):
         derivative_A_on_Z = self.act*(1-self.act) 
@@ -102,14 +114,25 @@ class NeuroLayer:
     def updataWeights(self):
         DW = np.dot(self.derivative_Z,self.inputs.T)*1.0/self.inputs.shape[1]
         assert(DW.shape == self.weights.shape)
-        self.weights = self.weights - self.alpha * DW
+        self.weights = (1.0 - (self.lmbda/self.inputs.shape[1]))*self.weights - self.alpha * DW
         
-    def initParams(self,last_layer_units):
+    def initParams(self,last_layer_units,**regularization):
         self.weights = np.random.randn(self.num_units,last_layer_units+1)
-        
+        #全局L2正则
+        if regularization.get('L2') != None:
+            self.regularizationL2(regularization['L2'])
+        #全局dropout入口
+        if regularization.get('Dropout') != None:
+            self.regularizationDropout(regularization['Dropout'])
+    
+    def regularizationL2(self,lmbda):
+        self.lmbda = lmbda
+    
+    def regularizationDropout(self,keep_ratio):
+        self.keep_ratio = keep_ratio
     
 class NeuroNet:
-    def __init__(self, data):
+    def __init__(self, data, **arguments):
         #train/test set is arranged by (num_of_feature, num_of_dataset)
         #train/test label is vertical vector, namey (num_of_dataset, 1)
         self.train_set = data.train['data']
@@ -120,14 +143,28 @@ class NeuroNet:
         self.num_of_dataset = self.train_set.shape[1]
         self.num_of_feature = self.train_set.shape[0]
         self.layers = []
-    def addLayer(self,name,num_units,alpha):
-        layer = NeuroLayer(name,num_units,alpha)
+        #for regularizaiton
+        #earlytop for Net only
+        self.early_stop = False
+        if arguments.get('Earlystop') != None:
+            self.early_stop = arguments['Earlystop']
+        #for global dropout
+        self.keep_ratio = 1.0
+        #for global L2
+        self.L2 = 0.0
+        if arguments.get('L2') != None:
+            self.L2 = arguments['L2']
+        
+    def addLayer(self,name,num_units,alpha,**arguments):
+        if arguments.get('Dropout') != None:
+            self.keep_ratio = arguments['Dropout']
+        layer = NeuroLayer(name,num_units,alpha,Dropout = self.keep_ratio)
         self.layers.append(layer)
         
     def initLayers(self):
         last_layer_units = self.num_of_feature
         for layer in self.layers:
-            layer.initParams(last_layer_units)
+            layer.initParams(last_layer_units,L2 = self.L2)
             last_layer_units = layer.num_units
         
     def forward(self,input_x):
@@ -154,11 +191,21 @@ class NeuroNet:
             
     def train(self,epoch_limits):
         print "training start..."
+        early_stop_counter = 0
         for i in xrange(epoch_limits):
             self.forward(self.train_set)
             self.backwark(self.train_label)
             print("training %05d epoch: \n\tprecision on train %02.02f \n\tprecision on test  %02.02f"%(i+1,self.stats("train"),self.stats("test")))
-
+            #simple early stop            
+            if self.early_stop == True:
+                if (self.stats("train") - self.stats("test")) > 0.05*self.stats("test"):
+                    early_stop_counter += 1
+                    if early_stop_counter > 10:
+                        print("Early stop working...stoping train")
+                        break;
+                else:
+                    early_stop_counter = 0
+                    
             
     def stats(self,type_of_dataset):
         if type_of_dataset == "train":
@@ -203,11 +250,11 @@ def buildNet():
     data = loadData()
     #根据课程内容，将数据集转置，调整成每列一个样本
     #标签集保持列向量形式
-    net = NeuroNet(data)
+    net = NeuroNet(data,Earlystop = True,L2 = 20)
     net.addLayer("first",100,0.01)
     net.addLayer("second",80,0.01)
     net.addLayer("third",60,0.01)
-    net.addLayer("forth",40,0.01)
+    net.addLayer("forth",40,0.02,Dropout = 0.8)
     net.addLayer("fifth",20,0.01)
     net.addLayer("output",1,0.01)
     net.initLayers()

@@ -18,6 +18,7 @@ Andrew Ng's new course on DL, 2017.
 Course 2 Week 1 -- MLP_with_tools.py
 （在原有多层感知机程序上扩展，但使用新的文件增加新功能）
 
-17.9.8 增加数据归一化功能，增加数据集划分train/dev集合功能
+完成数据归一化、数据集划分train/dev集合功能
+17.9.10 增加三种正则化方式：L2,Dropout,Earlystoping
 
 待续……
