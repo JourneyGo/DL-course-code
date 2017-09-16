@@ -19,6 +19,27 @@ Course 2 Week 1 -- MLP_with_tools.py
 （在原有多层感知机程序上扩展，但使用新的文件增加新功能）
 
 完成数据归一化、数据集划分train/dev集合功能
-17.9.10 增加三种正则化方式：L2,Dropout,Earlystoping
 
+17.9.10 增加三种正则化方式：L2,Dropout,Earlystoping，一个网络可以如下定义：
+```
+def buildNet():
+    data = loadData()
+    #定义网络，选择是否Earlystop，设定全局L2正则化参数lambda;（可选全局化Dropout: Dropout = neuro_keep_ratio）
+    net = NeuroNet(data,Earlystop = True,L2 = 20)
+    net.addLayer("first",100,0.01)
+    net.addLayer("second",80,0.01)
+    net.addLayer("third",60,0.01)
+    #定义某一层（名称，节点数，学习率，Dropout=neuro_keep_ratio）
+    net.addLayer("forth",40,0.02,Dropout = 0.8)
+    net.addLayer("fifth",20,0.01)
+    net.addLayer("output",1,0.01)
+    net.initLayers()
+    return net
+    
+def dothework():
+    #创建神经网络
+    net = buildNet()
+    #迭代训练n次
+    net.train(200000)
+```
 待续……
