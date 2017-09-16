@@ -113,11 +113,15 @@ class NeuroLayer:
         
     def updataWeights(self):
         DW = np.dot(self.derivative_Z,self.inputs.T)*1.0/self.inputs.shape[1]
+        # self.DW use for gradient check ONLY       
+        self.DW = DW
         assert(DW.shape == self.weights.shape)
         self.weights = (1.0 - (self.lmbda/self.inputs.shape[1]))*self.weights - self.alpha * DW
         
     def initParams(self,last_layer_units,**regularization):
-        self.weights = np.random.randn(self.num_units,last_layer_units+1)
+        #self.weights = np.random.randn(self.num_units,last_layer_units+1)
+        #add exploding/vanishing avoidance
+        self.weights = np.random.randn(self.num_units,last_layer_units+1)*np.sqrt(1.0/last_layer_units)
         #全局L2正则
         if regularization.get('L2') != None:
             self.regularizationL2(regularization['L2'])
@@ -130,7 +134,7 @@ class NeuroLayer:
     
     def regularizationDropout(self,keep_ratio):
         self.keep_ratio = keep_ratio
-    
+            
 class NeuroNet:
     def __init__(self, data, **arguments):
         #train/test set is arranged by (num_of_feature, num_of_dataset)
@@ -154,6 +158,9 @@ class NeuroNet:
         self.L2 = 0.0
         if arguments.get('L2') != None:
             self.L2 = arguments['L2']
+        #for gradient check
+        if arguments.get('GradCheck') == True:
+            self.gradient_check = True
         
     def addLayer(self,name,num_units,alpha,**arguments):
         if arguments.get('Dropout') != None:
@@ -193,6 +200,9 @@ class NeuroNet:
         print "training start..."
         early_stop_counter = 0
         for i in xrange(epoch_limits):
+            if i == 10 and self.gradient_check:
+                print("gradient diff is %f"%self.gradientCheck())
+                break;
             self.forward(self.train_set)
             self.backwark(self.train_label)
             print("training %05d epoch: \n\tprecision on train %02.02f \n\tprecision on test  %02.02f"%(i+1,self.stats("train"),self.stats("test")))
@@ -228,7 +238,44 @@ class NeuroNet:
         y[y >  0.5] = 1
         y[y <= 0.5] = 0
         print y
-        return sum(y.T==self.test_label)*1.0/self.test_label.shape[0],y            
+        return sum(y.T==self.test_label)*1.0/self.test_label.shape[0],y  
+        
+    def computeCost(self,label):
+        layer = self.layers[-1]
+        y = layer.act
+        # y has shape [N_of_output_layer,Number_of_batch_size]
+        cost_matrix = np.multiply(label,label - y.T)
+        cost = np.sum(cost_matrix)*1.0/label.shape[0]
+        return cost
+
+    def gradientCheck(self):
+        print("Checking Gradient...")
+        epsilon = pow(10,-7)
+        DW_all = {}
+        DW_Numerical_all = {}
+        diff = 0.0
+        num_of_weights = 0
+        for layer in self.layers:
+            DW_all[layer.name] = layer.DW
+            DW_Numerical_all[layer.name] = np.zeros((layer.DW.shape[0],layer.DW.shape[1]))
+        for layer in self.layers:    
+            for i in range(layer.weights.shape[0]):
+                for j in range(layer.weights.shape[1]):
+                    num_of_weights = num_of_weights + 1
+                    W_ij = layer.weights[i][j]
+                    layer.weights[i][j] = W_ij + epsilon
+                    self.forward(self.train_set)
+                    Up = self.computeCost(self.train_label)+layer.lmbda*( layer.weights[i][j]**2 )/2.0/self.train_set.shape[1]
+                    layer.weights[i][j] = W_ij - epsilon
+                    self.forward(self.train_set)
+                    Down = self.computeCost(self.train_label)+layer.lmbda*( layer.weights[i][j]**2 )/2.0/self.train_set.shape[1]
+                    DW_Numerical_all[layer.name][i][j] = (Up-Down)/2.0/epsilon
+                    layer.weights[i][j] = W_ij
+            #add the diff in this layer
+            diff = diff + np.sum((DW_all[layer.name]-DW_Numerical_all[layer.name])**2)
+        self.DW_Numerical_all = DW_Numerical_all
+        self.DW_all = DW_all
+        return diff/( sum(DW_all**2) )
 
 def loadData():
     '''
@@ -250,11 +297,14 @@ def buildNet():
     data = loadData()
     #根据课程内容，将数据集转置，调整成每列一个样本
     #标签集保持列向量形式
-    net = NeuroNet(data,Earlystop = True,L2 = 20)
+    #定义网络，选择是否Earlystop，设定全局L2正则化参数lambda;（可选全局化Dropout: Dropout = neuro_keep_ratio）
+    #只在Debug时选择 GradCheck = True，非常耗时
+    net = NeuroNet(data,Earlystop = True,L2 = 20,GradCheck = True)
     net.addLayer("first",100,0.01)
-    net.addLayer("second",80,0.01)
-    net.addLayer("third",60,0.01)
-    net.addLayer("forth",40,0.02,Dropout = 0.8)
+    #net.addLayer("second",80,0.01)
+    #net.addLayer("third",60,0.01)
+    #定义某一层（名称，节点数，学习率，Dropout=neuro_keep_ratio）
+    #net.addLayer("forth",40,0.02,Dropout = 0.8)
     net.addLayer("fifth",20,0.01)
     net.addLayer("output",1,0.01)
     net.initLayers()
@@ -265,8 +315,7 @@ def dothework():
     net = buildNet()
     print("build success,net have %d layers"%len(net.layers))
     #迭代训练 5000次
-    net.train(200000)
-    net.stats('test')
+    net.train(20)
 
 if __name__ == "__main__":
     dothework()
